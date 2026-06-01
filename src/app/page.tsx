@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
 import CancelModal from "@/components/CancelModal";
+import DatePicker from "@/components/DatePicker";
 
 type Space = { id: string; name: string; capacity: number | null; building: string | null };
 type Reservation = {
@@ -288,14 +289,7 @@ export default function Home() {
               className="w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold text-slate-500 hover:bg-white hover:text-blue-600 transition-all">
               ‹
             </button>
-            <div className="flex items-center gap-2 px-2 py-1">
-              <span className="text-sm font-bold text-slate-700 whitespace-nowrap">
-                {formatDateKo(date)}
-              </span>
-              {date === today && (
-                <span className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-0.5 rounded-full">오늘</span>
-              )}
-            </div>
+            <DatePicker value={date} onChange={setDate} />
             <button
               type="button"
               onClick={() => setDate(addDays(date, 1))}
