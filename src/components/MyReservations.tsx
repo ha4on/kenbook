@@ -41,6 +41,14 @@ function formatDateKo(dateStr: string) {
   return `${mo}월 ${d}일 (${day})`;
 }
 
+function getTodayStr() {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const d = String(today.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function MyReservations({ userId, onClose, onSuccess }: Props) {
   const supabase = createClient();
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -48,14 +56,14 @@ export default function MyReservations({ userId, onClose, onSuccess }: Props) {
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  const todayStr = getTodayStr();
 
   useEffect(() => {
     supabase
       .from("reservations")
       .select("*")
       .eq("user_id", userId)
-      .gte("date", today)
+      .gte("date", todayStr)
       .order("date", { ascending: true })
       .order("start_time", { ascending: true })
       .then(({ data }) => {
@@ -84,7 +92,6 @@ export default function MyReservations({ userId, onClose, onSuccess }: Props) {
     onSuccess();
   };
 
-  // 날짜별로 그룹핑
   const grouped = reservations.reduce<Record<string, Reservation[]>>((acc, r) => {
     if (!acc[r.date]) acc[r.date] = [];
     acc[r.date].push(r);
@@ -94,6 +101,7 @@ export default function MyReservations({ userId, onClose, onSuccess }: Props) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+
         {/* 헤더 */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
           <h2 className="text-lg font-bold text-slate-800">내 예약 관리</h2>
@@ -124,9 +132,11 @@ export default function MyReservations({ userId, onClose, onSuccess }: Props) {
             <div className="space-y-4">
               {Object.entries(grouped).map(([date, rsvs]) => (
                 <div key={date}>
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                     {formatDateKo(date)}
-                    {date === today && <span className="ml-1.5 bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full normal-case">오늘</span>}
+                    {date === todayStr && (
+                      <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full normal-case font-semibold">오늘</span>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     {rsvs.map(r => {
@@ -144,8 +154,12 @@ export default function MyReservations({ userId, onClose, onSuccess }: Props) {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-slate-700">{SPACE_NAMES[r.space_id] ?? r.space_id}</span>
-                              <span className="text-xs text-slate-400">{r.start_time} – {r.end_time}</span>
+                              <span className="text-sm font-bold text-slate-700">
+                                {SPACE_NAMES[r.space_id] ?? r.space_id}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {r.start_time.slice(0,5)} – {r.end_time.slice(0,5)}
+                              </span>
                             </div>
                           </div>
                         </div>
