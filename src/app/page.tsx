@@ -70,17 +70,22 @@ function timeToSlot(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return (h * 60 + m - 9 * 60) / 30;
 }
-function toDateStr(d: Date) { return d.toISOString().split("T")[0]; }
+function toDateStr(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 function addDays(dateStr: string, n: number) {
   const [y, mo, d] = dateStr.split("-").map(Number);
-  const date = new Date(y, mo - 1, d);
-  date.setDate(date.getDate() + n);
-  return toDateStr(date);
+  const dt = new Date(y, mo - 1, d);
+  dt.setDate(dt.getDate() + n);
+  return toDateStr(dt);
 }
 function formatDateKo(dateStr: string) {
   const [y, mo, d] = dateStr.split("-").map(Number);
-  const date = new Date(y, mo - 1, d);
-  const day = ["일","월","화","수","목","금","토"][date.getDay()];
+  const dt = new Date(y, mo - 1, d);
+  const day = ["일","월","화","수","목","금","토"][dt.getDay()];
   return `${mo}월 ${d}일 (${day})`;
 }
 
@@ -97,28 +102,24 @@ export default function Home() {
   const [cancelData, setCancelData]     = useState<Reservation[] | null>(null);
   const [slotW, setSlotW]               = useState(52);
 
-  const isDragging   = useRef(false);
-  const dragRef      = useRef<DragState>(null);
-  const dateInputRef = useRef<HTMLInputElement>(null);
+  const isDragging = useRef(false);
+  const dragRef    = useRef<DragState>(null);
 
   const today  = toDateStr(new Date());
   const floors = Object.keys(FLOOR_DATA);
   const spaces = FLOOR_DATA[floor];
   const gridW  = SLOT_COUNT * slotW;
 
-  // 슬롯 너비 자동 계산
   useEffect(() => {
     const calc = () => {
       const avail = window.innerWidth - LEFT_W;
-      const fit = avail / SLOT_COUNT;
-      setSlotW(Math.max(MIN_SLOT_W, Math.floor(fit)));
+      setSlotW(Math.max(MIN_SLOT_W, Math.floor(avail / SLOT_COUNT)));
     };
     calc();
     window.addEventListener("resize", calc);
     return () => window.removeEventListener("resize", calc);
   }, []);
 
-  // 유저 세션
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
     supabase.auth.onAuthStateChange((_, session) => setUser(session?.user ?? null));
@@ -130,7 +131,6 @@ export default function Home() {
       .then(({ data }) => setProfile(data));
   }, [user]);
 
-  // T/ㅅ/ㅆ 단축키
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -140,7 +140,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // 자동 로그아웃 3시간
   useEffect(() => {
     const TIMEOUT = 3 * 60 * 60 * 1000;
     let timer = setTimeout(async () => {
@@ -155,8 +154,8 @@ export default function Home() {
       }, TIMEOUT);
     };
     const events = ["mousedown","keydown","scroll","touchstart"];
-    events.forEach(e => window.addEventListener(e, reset));
-    return () => { clearTimeout(timer); events.forEach(e => window.removeEventListener(e, reset)); };
+    events.forEach(ev => window.addEventListener(ev, reset));
+    return () => { clearTimeout(timer); events.forEach(ev => window.removeEventListener(ev, reset)); };
   }, [supabase]);
 
   const loadReservations = useCallback(async () => {
@@ -227,9 +226,7 @@ export default function Home() {
     const s = Math.min(startSlot, endSlot);
     const e = Math.max(startSlot, endSlot);
     setDrag(null);
-
     if (!user) return;
-
     const { error } = await supabase.from("reservations").insert({
       space_id: spaceId,
       user_id: user.id,
@@ -239,7 +236,6 @@ export default function Home() {
       purpose: "",
       members: [user.id],
     });
-
     if (!error) {
       triggerToast("✅ 예약이 완료되었습니다");
       loadReservations();
@@ -247,7 +243,9 @@ export default function Home() {
   }, [user, date, supabase, loadReservations]);
 
   useEffect(() => {
-    const handler = () => commitDrag();
+    const handler = () => {
+      if (isDragging.current) commitDrag();
+    };
     window.addEventListener("mouseup", handler);
     return () => window.removeEventListener("mouseup", handler);
   }, [commitDrag]);
@@ -268,11 +266,13 @@ export default function Home() {
   const displayName = profile?.name?.split("/")?.[0] ?? "";
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-100 select-none">
+    <div className="h-screen w-screen flex flex-col bg-slate-100">
 
       {/* Header */}
-      <header className="bg-white border-b border-slate-300 shadow-sm shrink-0 z-50">
+      <header className="bg-white border-b border-slate-300 shadow-sm shrink-0 z-50 select-none">
         <div className="flex items-center justify-between px-5 py-3 gap-4">
+
+          {/* Logo */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
               <span className="text-white text-sm font-black">K</span>
@@ -282,33 +282,38 @@ export default function Home() {
 
           {/* Date Navigator */}
           <div className="flex items-center gap-1 bg-slate-100 rounded-2xl p-1">
-            <button onClick={() => setDate(addDays(date, -1))}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold text-slate-500 hover:bg-white hover:shadow-sm hover:text-blue-600 transition-all">‹</button>
-            <button type="button" onClick={() => dateInputRef.current?.showPicker()}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-600 hover:bg-white transition-all">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
-                <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-              </svg>
+            <button
+              type="button"
+              onClick={() => setDate(addDays(date, -1))}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold text-slate-500 hover:bg-white hover:text-blue-600 transition-all">
+              ‹
             </button>
-            <input ref={dateInputRef} type="date" value={date}
-              onChange={e => { if (e.target.value) setDate(e.target.value); }}
-              className="sr-only" tabIndex={-1} />
             <div className="flex items-center gap-2 px-2 py-1">
-              <span className="text-sm font-bold text-slate-700 whitespace-nowrap">{formatDateKo(date)}</span>
-              {date === today && <span className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-0.5 rounded-full">오늘</span>}
+              <span className="text-sm font-bold text-slate-700 whitespace-nowrap">
+                {formatDateKo(date)}
+              </span>
+              {date === today && (
+                <span className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-0.5 rounded-full">오늘</span>
+              )}
             </div>
-            <button onClick={() => setDate(addDays(date, 1))}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold text-slate-500 hover:bg-white hover:shadow-sm hover:text-blue-600 transition-all">›</button>
+            <button
+              type="button"
+              onClick={() => setDate(addDays(date, 1))}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold text-slate-500 hover:bg-white hover:text-blue-600 transition-all">
+              ›
+            </button>
           </div>
 
+          {/* User */}
           <div className="flex items-center gap-3 shrink-0">
             {loading && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
             <div className="text-right hidden sm:block">
               <p className="text-sm font-bold text-slate-700 leading-tight">{displayName}</p>
               <p className="text-xs text-slate-400 leading-tight">{profile?.student_id}</p>
             </div>
-            <button onClick={handleLogout}
+            <button
+              type="button"
+              onPointerUp={handleLogout}
               className="text-xs font-medium text-slate-500 hover:text-red-500 bg-slate-100 hover:bg-red-50 px-3 py-2 rounded-xl transition-colors">
               로그아웃
             </button>
@@ -318,7 +323,10 @@ export default function Home() {
         {/* Floor Tabs */}
         <div className="flex px-5 border-t border-slate-200">
           {floors.map(f => (
-            <button key={f} onClick={() => setFloor(f)}
+            <button
+              key={f}
+              type="button"
+              onPointerUp={() => setFloor(f)}
               className={`px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${floor === f ? "border-blue-600 text-blue-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               {f}
             </button>
@@ -338,7 +346,7 @@ export default function Home() {
           <div style={{ width: LEFT_W + gridW }}>
 
             {/* Time Header */}
-            <div className="flex sticky top-0 z-30 bg-white border-b-2 border-slate-300" style={{ height: HEADER_H }}>
+            <div className="flex sticky top-0 z-30 bg-white border-b-2 border-slate-300 select-none" style={{ height: HEADER_H }}>
               <div className="shrink-0 sticky left-0 z-40 bg-slate-50 border-r-2 border-slate-300 flex items-end justify-center pb-2" style={{ width: LEFT_W }}>
                 <span className="text-xs font-bold text-slate-400 tracking-widest uppercase">공간</span>
               </div>
@@ -359,7 +367,7 @@ export default function Home() {
               const isEven = rowIdx % 2 === 0;
               return (
                 <div key={space.id} className={`flex border-b ${isEven ? "border-slate-200" : "border-slate-100"}`} style={{ height: ROW_H }}>
-                  <div className={`shrink-0 sticky left-0 z-20 border-r-2 border-slate-300 flex flex-col justify-center px-3 ${isEven ? "bg-white" : "bg-slate-50"}`} style={{ width: LEFT_W }}>
+                  <div className={`shrink-0 sticky left-0 z-20 border-r-2 border-slate-300 flex flex-col justify-center px-3 select-none ${isEven ? "bg-white" : "bg-slate-50"}`} style={{ width: LEFT_W }}>
                     <span className="text-sm font-bold text-slate-700 truncate">{space.name}</span>
                     {space.capacity && <span className="text-xs text-slate-400">최대 {space.capacity}인</span>}
                   </div>
@@ -385,8 +393,8 @@ export default function Home() {
                             data-sid={space.id}
                             className={`shrink-0 h-full transition-colors touch-none ${dragged ? "bg-blue-200/70" : booked ? "cursor-default" : "hover:bg-blue-50 cursor-crosshair"}`}
                             style={{ width: slotW }}
-                            onMouseDown={() => onCellDown(space.id, i)}
-                            onMouseEnter={() => onCellEnter(space.id, i)}
+                            onPointerDown={() => onCellDown(space.id, i)}
+                            onPointerEnter={() => onCellEnter(space.id, i)}
                             onTouchStart={(e) => { e.preventDefault(); onCellDown(space.id, i); }}
                             onTouchMove={(e) => {
                               e.preventDefault();
@@ -396,7 +404,7 @@ export default function Home() {
                               const sid = el?.getAttribute("data-sid");
                               if (slot && sid === space.id) onCellEnter(space.id, parseInt(slot));
                             }}
-                            onTouchEnd={() => commitDrag()}
+                            onTouchEnd={() => { if (isDragging.current) commitDrag(); }}
                           />
                         );
                       })}
@@ -423,9 +431,9 @@ export default function Home() {
                         <div key={r.id}
                           className={`absolute inset-y-1.5 rounded-xl ${COLORS[idx % COLORS.length]} z-10 cursor-pointer shadow-md overflow-hidden flex items-center px-2.5 gap-1.5 hover:brightness-90 transition-all ${isOwn ? "ring-2 ring-white ring-offset-1" : ""}`}
                           style={{ left: s * slotW + 1, width: (e - s + 1) * slotW - 2 }}
-                          onMouseDown={ev => ev.stopPropagation()}
+                          onPointerDown={ev => ev.stopPropagation()}
                           onTouchStart={ev => ev.stopPropagation()}
-                          onClick={() => handleBlockClick(space.id)}>
+                          onPointerUp={() => handleBlockClick(space.id)}>
                           <span className="text-white text-xs font-bold truncate">{r.profiles?.name?.split("/")?.[0]}</span>
                           {isOwn && <span className="ml-auto text-white/90 text-xs bg-black/20 px-1.5 py-0.5 rounded-md shrink-0">내 예약</span>}
                         </div>
@@ -439,7 +447,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 취소 모달 */}
       {cancelData && (
         <CancelModal
           reservations={cancelData}
@@ -449,7 +456,6 @@ export default function Home() {
         />
       )}
 
-      {/* Toast */}
       <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${toast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"}`}>
         <div className="bg-slate-800 text-white text-sm font-semibold px-5 py-3.5 rounded-2xl shadow-2xl whitespace-nowrap">{toast}</div>
       </div>
