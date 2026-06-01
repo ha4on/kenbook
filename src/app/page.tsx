@@ -231,8 +231,12 @@ export default function Home() {
     const myReservations = reservations.filter(
       r => r.space_id === spaceId && r.date === date && r.user_id === user?.id
     );
+    const allReservations = reservations.filter(
+      r => r.space_id === spaceId && r.date === date
+    );
+    // 내 예약이 없으면 모달 안 열기
     if (myReservations.length === 0) return;
-    setCancelData(myReservations);
+    setCancelData(allReservations);
   };
 
   const triggerToast = (msg: string) => {
