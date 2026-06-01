@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
 import CancelModal from "@/components/CancelModal";
 import DatePicker from "@/components/DatePicker";
+import MyReservations from "@/components/MyReservations";
 
 type Space = { id: string; name: string; capacity: number | null; building: string | null };
 type Reservation = {
@@ -83,25 +84,20 @@ function addDays(dateStr: string, n: number) {
   dt.setDate(dt.getDate() + n);
   return toDateStr(dt);
 }
-function formatDateKo(dateStr: string) {
-  const [y, mo, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, mo - 1, d);
-  const day = ["일","월","화","수","목","금","토"][dt.getDay()];
-  return `${mo}월 ${d}일 (${day})`;
-}
 
 export default function Home() {
   const supabase = createClient();
-  const [user, setUser]                 = useState<User | null>(null);
-  const [profile, setProfile]           = useState<{ name: string; student_id: string } | null>(null);
-  const [floor, setFloor]               = useState("1층");
-  const [date, setDate]                 = useState(toDateStr(new Date()));
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [drag, setDrag]                 = useState<DragState>(null);
-  const [toast, setToast]               = useState<string | null>(null);
-  const [loading, setLoading]           = useState(false);
-  const [cancelData, setCancelData]     = useState<Reservation[] | null>(null);
-  const [slotW, setSlotW]               = useState(52);
+  const [user, setUser]                     = useState<User | null>(null);
+  const [profile, setProfile]               = useState<{ name: string; student_id: string } | null>(null);
+  const [floor, setFloor]                   = useState("1층");
+  const [date, setDate]                     = useState(toDateStr(new Date()));
+  const [reservations, setReservations]     = useState<Reservation[]>([]);
+  const [drag, setDrag]                     = useState<DragState>(null);
+  const [toast, setToast]                   = useState<string | null>(null);
+  const [loading, setLoading]               = useState(false);
+  const [cancelData, setCancelData]         = useState<Reservation[] | null>(null);
+  const [showMyReservations, setShowMyReservations] = useState(false);
+  const [slotW, setSlotW]                   = useState(52);
 
   const isDragging = useRef(false);
   const dragRef    = useRef<DragState>(null);
@@ -299,7 +295,7 @@ export default function Home() {
           </div>
 
           {/* User */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {loading && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
             <div className="text-right hidden sm:block">
               <p className="text-sm font-bold text-slate-700 leading-tight">{displayName}</p>
@@ -307,7 +303,13 @@ export default function Home() {
             </div>
             <button
               type="button"
-              onPointerUp={handleLogout}
+              onClick={() => setShowMyReservations(true)}
+              className="text-xs font-medium text-slate-500 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 px-3 py-2 rounded-xl transition-colors">
+              내 예약
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
               className="text-xs font-medium text-slate-500 hover:text-red-500 bg-slate-100 hover:bg-red-50 px-3 py-2 rounded-xl transition-colors">
               로그아웃
             </button>
@@ -320,7 +322,7 @@ export default function Home() {
             <button
               key={f}
               type="button"
-              onPointerUp={() => setFloor(f)}
+              onClick={() => setFloor(f)}
               className={`px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${floor === f ? "border-blue-600 text-blue-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               {f}
             </button>
@@ -367,7 +369,6 @@ export default function Home() {
                   </div>
 
                   <div className="relative shrink-0" style={{ width: gridW, height: ROW_H }}>
-                    {/* 배경 격자 */}
                     <div className="flex h-full pointer-events-none absolute inset-0">
                       {Array.from({ length: SLOT_COUNT }, (_, i) => (
                         <div key={i}
@@ -376,7 +377,6 @@ export default function Home() {
                       ))}
                     </div>
 
-                    {/* 인터랙션 셀 */}
                     <div className="flex h-full absolute inset-0">
                       {Array.from({ length: SLOT_COUNT }, (_, i) => {
                         const booked  = isReserved(space.id, i);
@@ -404,7 +404,6 @@ export default function Home() {
                       })}
                     </div>
 
-                    {/* 드래그 미리보기 */}
                     {drag?.spaceId === space.id && (() => {
                       const s = Math.min(drag.startSlot, drag.endSlot);
                       const e = Math.max(drag.startSlot, drag.endSlot);
@@ -416,7 +415,6 @@ export default function Home() {
                       );
                     })()}
 
-                    {/* 예약 블록 */}
                     {spRes.map((r, idx) => {
                       const s = timeToSlot(r.start_time);
                       const e = timeToSlot(r.end_time) - 1;
@@ -447,6 +445,14 @@ export default function Home() {
           userId={user?.id ?? ""}
           onClose={() => setCancelData(null)}
           onSuccess={() => { setCancelData(null); triggerToast("🗑️ 예약이 취소되었습니다"); loadReservations(); }}
+        />
+      )}
+
+      {showMyReservations && (
+        <MyReservations
+          userId={user?.id ?? ""}
+          onClose={() => setShowMyReservations(false)}
+          onSuccess={() => { setShowMyReservations(false); triggerToast("🗑️ 예약이 취소되었습니다"); loadReservations(); }}
         />
       )}
 
