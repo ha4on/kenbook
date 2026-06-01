@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
-import ReservationModal from "@/components/ReservationModal";
 import CancelModal from "@/components/CancelModal";
 
 type Space = { id: string; name: string; capacity: number | null; building: string | null };
@@ -73,14 +72,16 @@ function timeToSlot(time: string): number {
 }
 function toDateStr(d: Date) { return d.toISOString().split("T")[0]; }
 function addDays(dateStr: string, n: number) {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return toDateStr(d);
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, mo - 1, d);
+  date.setDate(date.getDate() + n);
+  return toDateStr(date);
 }
 function formatDateKo(dateStr: string) {
-  const d = new Date(dateStr + "T00:00:00");
-  const day = ["일","월","화","수","목","금","토"][d.getDay()];
-  return `${d.getMonth()+1}월 ${d.getDate()}일 (${day})`;
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, mo - 1, d);
+  const day = ["일","월","화","수","목","금","토"][date.getDay()];
+  return `${mo}월 ${d}일 (${day})`;
 }
 
 export default function Home() {
@@ -93,7 +94,6 @@ export default function Home() {
   const [drag, setDrag]                 = useState<DragState>(null);
   const [toast, setToast]               = useState<string | null>(null);
   const [loading, setLoading]           = useState(false);
-  const [modalData, setModalData]       = useState<{ spaceId: string; startSlot: number; endSlot: number } | null>(null);
   const [cancelData, setCancelData]     = useState<Reservation[] | null>(null);
   const [slotW, setSlotW]               = useState(52);
 
@@ -106,7 +106,7 @@ export default function Home() {
   const spaces = FLOOR_DATA[floor];
   const gridW  = SLOT_COUNT * slotW;
 
-  // 화면 폭에 맞춰 슬롯 너비 자동 계산
+  // 슬롯 너비 자동 계산
   useEffect(() => {
     const calc = () => {
       const avail = window.innerWidth - LEFT_W;
@@ -118,6 +118,7 @@ export default function Home() {
     return () => window.removeEventListener("resize", calc);
   }, []);
 
+  // 유저 세션
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
     supabase.auth.onAuthStateChange((_, session) => setUser(session?.user ?? null));
@@ -129,6 +130,7 @@ export default function Home() {
       .then(({ data }) => setProfile(data));
   }, [user]);
 
+  // T/ㅅ/ㅆ 단축키
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -138,6 +140,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // 자동 로그아웃 3시간
   useEffect(() => {
     const TIMEOUT = 3 * 60 * 60 * 1000;
     let timer = setTimeout(async () => {
@@ -177,6 +180,11 @@ export default function Home() {
     return () => { supabase.removeChannel(channel); };
   }, [loadReservations, supabase]);
 
+  const triggerToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const isReserved = (spaceId: string, slot: number) =>
     reservations.some(r => {
       if (r.space_id !== spaceId) return false;
@@ -208,7 +216,7 @@ export default function Home() {
 
   useEffect(() => { dragRef.current = drag; }, [drag]);
 
-  const commitDrag = useCallback(() => {
+  const commitDrag = useCallback(async () => {
     if (!isDragging.current || !dragRef.current) {
       isDragging.current = false;
       setDrag(null);
@@ -219,29 +227,37 @@ export default function Home() {
     const s = Math.min(startSlot, endSlot);
     const e = Math.max(startSlot, endSlot);
     setDrag(null);
-    setModalData({ spaceId, startSlot: s, endSlot: e });
-  }, []);
+
+    if (!user) return;
+
+    const { error } = await supabase.from("reservations").insert({
+      space_id: spaceId,
+      user_id: user.id,
+      date,
+      start_time: slotToTime(s),
+      end_time: slotToTime(e + 1),
+      purpose: "",
+      members: [user.id],
+    });
+
+    if (!error) {
+      triggerToast("✅ 예약이 완료되었습니다");
+      loadReservations();
+    }
+  }, [user, date, supabase, loadReservations]);
 
   useEffect(() => {
-    window.addEventListener("mouseup", commitDrag);
-    return () => window.removeEventListener("mouseup", commitDrag);
+    const handler = () => commitDrag();
+    window.addEventListener("mouseup", handler);
+    return () => window.removeEventListener("mouseup", handler);
   }, [commitDrag]);
 
   const handleBlockClick = (spaceId: string) => {
     const myReservations = reservations.filter(
       r => r.space_id === spaceId && r.date === date && r.user_id === user?.id
     );
-    const allReservations = reservations.filter(
-      r => r.space_id === spaceId && r.date === date
-    );
-    // 내 예약이 없으면 모달 안 열기
     if (myReservations.length === 0) return;
-    setCancelData(allReservations);
-  };
-
-  const triggerToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setCancelData(myReservations);
   };
 
   const handleLogout = async () => {
@@ -264,6 +280,7 @@ export default function Home() {
             <span className="text-base font-black text-slate-800 tracking-tight hidden sm:block">KENTECH Space</span>
           </div>
 
+          {/* Date Navigator */}
           <div className="flex items-center gap-1 bg-slate-100 rounded-2xl p-1">
             <button onClick={() => setDate(addDays(date, -1))}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold text-slate-500 hover:bg-white hover:shadow-sm hover:text-blue-600 transition-all">‹</button>
@@ -298,6 +315,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Floor Tabs */}
         <div className="flex px-5 border-t border-slate-200">
           {floors.map(f => (
             <button key={f} onClick={() => setFloor(f)}
@@ -314,9 +332,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Gantt: 세로 스크롤 */}
+      {/* Gantt */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* 가로 스크롤 */}
         <div className="overflow-x-auto">
           <div style={{ width: LEFT_W + gridW }}>
 
@@ -348,6 +365,7 @@ export default function Home() {
                   </div>
 
                   <div className="relative shrink-0" style={{ width: gridW, height: ROW_H }}>
+                    {/* 배경 격자 */}
                     <div className="flex h-full pointer-events-none absolute inset-0">
                       {Array.from({ length: SLOT_COUNT }, (_, i) => (
                         <div key={i}
@@ -355,20 +373,36 @@ export default function Home() {
                           style={{ width: slotW }} />
                       ))}
                     </div>
+
+                    {/* 인터랙션 셀 */}
                     <div className="flex h-full absolute inset-0">
                       {Array.from({ length: SLOT_COUNT }, (_, i) => {
                         const booked  = isReserved(space.id, i);
                         const dragged = inDrag(space.id, i);
                         return (
                           <div key={i}
-                            className={`shrink-0 h-full transition-colors ${dragged ? "bg-blue-200/70" : booked ? "cursor-default" : "hover:bg-blue-50 cursor-crosshair"}`}
+                            data-slot={i}
+                            data-sid={space.id}
+                            className={`shrink-0 h-full transition-colors touch-none ${dragged ? "bg-blue-200/70" : booked ? "cursor-default" : "hover:bg-blue-50 cursor-crosshair"}`}
                             style={{ width: slotW }}
                             onMouseDown={() => onCellDown(space.id, i)}
                             onMouseEnter={() => onCellEnter(space.id, i)}
+                            onTouchStart={(e) => { e.preventDefault(); onCellDown(space.id, i); }}
+                            onTouchMove={(e) => {
+                              e.preventDefault();
+                              const touch = e.touches[0];
+                              const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                              const slot = el?.getAttribute("data-slot");
+                              const sid = el?.getAttribute("data-sid");
+                              if (slot && sid === space.id) onCellEnter(space.id, parseInt(slot));
+                            }}
+                            onTouchEnd={() => commitDrag()}
                           />
                         );
                       })}
                     </div>
+
+                    {/* 드래그 미리보기 */}
                     {drag?.spaceId === space.id && (() => {
                       const s = Math.min(drag.startSlot, drag.endSlot);
                       const e = Math.max(drag.startSlot, drag.endSlot);
@@ -379,6 +413,8 @@ export default function Home() {
                         </div>
                       );
                     })()}
+
+                    {/* 예약 블록 */}
                     {spRes.map((r, idx) => {
                       const s = timeToSlot(r.start_time);
                       const e = timeToSlot(r.end_time) - 1;
@@ -388,6 +424,7 @@ export default function Home() {
                           className={`absolute inset-y-1.5 rounded-xl ${COLORS[idx % COLORS.length]} z-10 cursor-pointer shadow-md overflow-hidden flex items-center px-2.5 gap-1.5 hover:brightness-90 transition-all ${isOwn ? "ring-2 ring-white ring-offset-1" : ""}`}
                           style={{ left: s * slotW + 1, width: (e - s + 1) * slotW - 2 }}
                           onMouseDown={ev => ev.stopPropagation()}
+                          onTouchStart={ev => ev.stopPropagation()}
                           onClick={() => handleBlockClick(space.id)}>
                           <span className="text-white text-xs font-bold truncate">{r.profiles?.name?.split("/")?.[0]}</span>
                           {isOwn && <span className="ml-auto text-white/90 text-xs bg-black/20 px-1.5 py-0.5 rounded-md shrink-0">내 예약</span>}
@@ -398,24 +435,11 @@ export default function Home() {
                 </div>
               );
             })}
-
           </div>
         </div>
       </div>
 
-      {modalData && (
-        <ReservationModal
-          spaceId={modalData.spaceId}
-          spaceName={spaces.find(s => s.id === modalData.spaceId)?.name ?? modalData.spaceId}
-          startSlot={modalData.startSlot}
-          endSlot={modalData.endSlot}
-          date={date}
-          userId={user?.id ?? ""}
-          onClose={() => setModalData(null)}
-          onSuccess={() => { setModalData(null); triggerToast("✅ 예약이 완료되었습니다"); loadReservations(); }}
-          slotToTime={slotToTime}
-        />
-      )}
+      {/* 취소 모달 */}
       {cancelData && (
         <CancelModal
           reservations={cancelData}
@@ -425,6 +449,7 @@ export default function Home() {
         />
       )}
 
+      {/* Toast */}
       <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${toast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"}`}>
         <div className="bg-slate-800 text-white text-sm font-semibold px-5 py-3.5 rounded-2xl shadow-2xl whitespace-nowrap">{toast}</div>
       </div>
